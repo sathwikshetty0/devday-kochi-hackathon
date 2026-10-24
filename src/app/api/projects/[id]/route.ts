@@ -14,6 +14,7 @@ const PatchSchema = z
     language: z.enum(LANGUAGES),
     part_length_seconds: z.number().int().min(5).max(600),
     merge_short_last: z.boolean(),
+    split_mode: z.enum(["even", "ai"]),
     add_part_badge: z.boolean(),
     crop_9_16: z.boolean(),
     simulate_failure: z.boolean(),

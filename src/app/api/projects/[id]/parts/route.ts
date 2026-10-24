@@ -19,6 +19,11 @@ export const POST = handle(async (req: Request, { params }: Ctx<{ id: string }>)
   const n = Number(form.get("part_number"));
   const total = Number(form.get("total_parts"));
   if (!Number.isInteger(n) || !Number.isInteger(total) || n < 1 || total < n) throw new HttpError(400, "Invalid part numbers");
+  const text = (k: string) => {
+    const v = form.get(k);
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const score = text("ai_score") === null ? null : Math.max(0, Math.min(100, Math.round(Number(text("ai_score")))));
   const partId = randomUUID();
   const url = await saveFile(`projects/${id}/parts/${partId}.mp4`, Buffer.from(await file.arrayBuffer()));
   insertPart({
@@ -38,10 +43,10 @@ export const POST = handle(async (req: Request, { params }: Ctx<{ id: string }>)
     delivery_proof: null,
     error_message: null,
     idempotency_key: randomUUID(),
-    transcript: null,
-    ai_score: null,
-    ai_important: false,
-    ai_reason: null,
+    transcript: form.has("transcript") ? String(form.get("transcript") ?? "") : null,
+    ai_score: Number.isFinite(score) ? score : null,
+    ai_important: form.get("ai_important") === "true",
+    ai_reason: text("ai_reason"),
     attempts: 0,
     file_size: file.size,
   });

@@ -4,7 +4,7 @@ import { db, getParts, renumberParts, updatePart, updateProject } from "@/lib/db
 import { generateCaptions } from "@/lib/ai/captions";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export const POST = handle(async (_req: Request, { params }: Ctx<{ id: string }>) => {
   const { id } = await params;

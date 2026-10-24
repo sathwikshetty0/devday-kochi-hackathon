@@ -27,3 +27,18 @@ it("normalizes hashtags", () => {
   const out = normalizeCaptions([part(1, null)], { series_title: "S", parts: [{ part_number: 1, caption: "c", hashtags: ["kochi", "##food", "street food", "kochi"] }] });
   expect(out[0].hashtags).toEqual(["#kochi", "#food", "#streetfood"]);
 });
+
+import { normalizeMoments } from "@/lib/ai/moments";
+
+it("turns AI segment ranges into ordered, non-overlapping cuts within the max length", () => {
+  const segs = [0, 1, 2, 3, 4, 5].map((i) => ({ index: i, start: i * 15, end: (i + 1) * 15, text: `s${i}` }));
+  const out = normalizeMoments(segs, { summary: "", moments: [
+    { start_segment: 4, end_segment: 5, title: "End", score: 60, important: false, reason: "r" },
+    { start_segment: 0, end_segment: 3, title: "Hook", score: 90, important: true, reason: "r" },
+    { start_segment: 3, end_segment: 3, title: "Dup", score: 10, important: false, reason: "r" },
+  ] }, 40);
+  expect(out.map((m) => [m.start, m.duration])).toEqual([[0, 30], [30, 30], [60, 30]]);
+  expect(out[0].title).toBe("Hook (1/2)");
+  expect(out[0].transcript).toBe("s0 s1");
+  expect(out[2].important).toBe(false);
+});

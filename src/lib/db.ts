@@ -97,6 +97,10 @@ export function db(): Db {
   _db = new Db(new DatabaseSync(file));
   _db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   _db.exec(SCHEMA);
+  const cols = new Set((_db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("split_mode")) _db.exec("ALTER TABLE projects ADD COLUMN split_mode TEXT NOT NULL DEFAULT 'even'");
+  if (!cols.has("timeline")) _db.exec("ALTER TABLE projects ADD COLUMN timeline TEXT");
+  if (!cols.has("ai_plan")) _db.exec("ALTER TABLE projects ADD COLUMN ai_plan TEXT");
   return _db;
 }
 

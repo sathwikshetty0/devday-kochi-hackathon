@@ -24,3 +24,18 @@ export const CaptionsSchema = z.object({
   ),
 });
 export type Captions = z.infer<typeof CaptionsSchema>;
+
+export const MomentsSchema = z.object({
+  summary: z.string(),
+  moments: z.array(
+    z.object({
+      start_segment: z.number().int(),
+      end_segment: z.number().int(),
+      title: z.string(),
+      score: z.number().min(0).max(100),
+      important: z.boolean(),
+      reason: z.string(),
+    }),
+  ),
+});
+export type Moments = z.infer<typeof MomentsSchema>;

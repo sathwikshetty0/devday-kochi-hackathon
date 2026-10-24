@@ -18,7 +18,7 @@ npm run dev            # http://localhost:3000
 
 | Secret | What |
 |---|---|
-| `NVIDIA_API_KEY` | build.nvidia.com key. Used for speech-to-text (Whisper large v3 via NVIDIA Riva gRPC) and the LLM (`openai/gpt-oss-20b` by default, falling back to `nvidia/nemotron-3-ultra-550b-a55b`; set `NVIDIA_LLM_MODEL` to change). |
+| `NVIDIA_API_KEY` | build.nvidia.com key. Used for speech-to-text (Whisper large v3 via NVIDIA Riva gRPC) and the LLM (`nvidia/nemotron-3.5-super-vl-120b-a12b` by default, with automatic fallback to other NVIDIA models when one is slow or unavailable; set `NVIDIA_LLM_MODEL` to change). |
 | `TELEGRAM_BOT_TOKEN` | From @BotFather. |
 | `TELEGRAM_CHAT_ID` | Your channel, e.g. `@mychannel` or `-100…`. Add the bot as a channel admin. |
 

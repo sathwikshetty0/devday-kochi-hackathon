@@ -4,22 +4,36 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AiTimeline } from "@/components/AiTimeline";
-import { ErrorBanner, PageLoading, ProgressBar, Spinner, StepIndicator, Toggle, stepForStatus } from "@/components/ui";
+import { ErrorBanner, PageLoading, ProgressBar, ScorePill, Spinner, StepIndicator, Toggle, stepForStatus } from "@/components/ui";
+import type { Moment, Segment } from "@/lib/ai/moments";
 import { api, getOriginalVideo, setOriginalVideo, uploadWithProgress, useProject } from "@/lib/client";
-import { formatDurationWords, planParts } from "@/lib/split-math";
-import { browserDuration, encodePart, ffmpegDuration, loadFFmpeg, mountInput } from "@/lib/splitter";
+import { formatDurationWords, formatTime, planParts, type PlannedPart } from "@/lib/split-math";
+import { browserDuration, encodePart, extractAudio, ffmpegDuration, loadFFmpeg, mountInput } from "@/lib/splitter";
 
 const LENGTHS = [15, 30, 45, 60];
 
 type RowState = { phase: "waiting" | "encoding" | "uploading" | "done" | "error"; progress: number; message?: string };
-type Busy = null | "engine" | "splitting" | "ai";
+type Busy = null | "engine" | "splitting" | "ai" | "audio" | "listening";
+type Mode = "even" | "ai";
+type PlannedCut = PlannedPart & { moment?: Moment };
+
+function parseJson<T>(s: string | null | undefined, fallback: T): T {
+  try {
+    return s ? (JSON.parse(s) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function SplitPage() {
   const { id } = useParams<{ id: string }>();
   const { data, error, refresh } = useProject(id);
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState<number | null>(null);
-  const [length, setLength] = useState(30);
+  const [length, setLength] = useState(60);
+  const [mode, setMode] = useState<Mode>("ai");
+  const [skipped, setSkipped] = useState<Set<number>>(new Set());
+  const [audioProgress, setAudioProgress] = useState(0);
   const [custom, setCustom] = useState("");
   const [merge, setMerge] = useState(true);
   const [badge, setBadge] = useState(true);
@@ -36,6 +50,9 @@ export default function SplitPage() {
   const parts = useMemo(() => data?.parts ?? [], [data]);
   const partLength = custom ? Math.max(5, Math.min(600, Math.round(Number(custom) || 0))) : length;
   const plan = useMemo(() => (duration ? planParts(duration, partLength, merge) : []), [duration, partLength, merge]);
+  const moments = useMemo(() => parseJson<Moment[]>(project?.ai_plan, []), [project?.ai_plan]);
+  const segments = useMemo(() => parseJson<Segment[]>(project?.timeline, []), [project?.timeline]);
+  const chosen = moments.filter((_, i) => !skipped.has(i));
   const locked = !!project && ["delivering", "completed", "stopped", "failed", "awaiting_approval"].includes(project.status);
 
   useEffect(() => {
@@ -44,6 +61,7 @@ export default function SplitPage() {
     if (LENGTHS.includes(project.part_length_seconds)) setLength(project.part_length_seconds);
     else setCustom(String(project.part_length_seconds));
     setMerge(project.merge_short_last);
+    if (project.split_mode) setMode(project.split_mode);
     setBadge(project.add_part_badge);
     setCrop(project.crop_9_16);
     const f = getOriginalVideo(id);
@@ -112,13 +130,50 @@ export default function SplitPage() {
     }
   }
 
-  async function startSplit() {
-    if (!file || !plan.length) return;
+  async function findMoments() {
+    if (!file || !duration) return;
+    setActionError(null);
+    setSkipped(new Set());
+    try {
+      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, split_mode: "ai", add_part_badge: badge, crop_9_16: crop } });
+      setBusy("engine");
+      const ff = await loadFFmpeg();
+      setBusy("audio");
+      setAudioProgress(0);
+      const input = await mountInput(ff, file);
+      let audio: Uint8Array;
+      try {
+        audio = await extractAudio(ff, input.path, duration, setAudioProgress);
+      } finally {
+        await input.cleanup();
+      }
+      setBusy("listening");
+      const form = new FormData();
+      form.append("audio", new Blob([new Uint8Array(audio)], { type: "audio/mp4" }), "audio.m4a");
+      form.append("max_length", String(partLength));
+      await uploadWithProgress(`/api/projects/${id}/timeline`, form, () => {});
+      await refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+      refresh();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function cutMoments() {
+    const cuts: PlannedCut[] = chosen.map((m, i) => ({ part_number: i + 1, start: m.start, duration: m.duration, moment: m }));
+    return startSplit(cuts);
+  }
+
+  async function startSplit(cuts: PlannedCut[] = plan) {
+    if (!file || !cuts.length) return;
     if (parts.length && !confirm(`This replaces the ${parts.length} existing parts. Continue?`)) return;
     setActionError(null);
-    setRows(plan.map(() => ({ phase: "waiting", progress: 0 })));
+    const aiCuts = cuts.some((c) => c.moment);
+    setRows(cuts.map(() => ({ phase: "waiting", progress: 0 })));
     try {
-      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, merge_short_last: merge, add_part_badge: badge, crop_9_16: crop } });
+      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, merge_short_last: merge, add_part_badge: badge, crop_9_16: crop, split_mode: aiCuts ? "ai" : "even" } });
       await api(`/api/projects/${id}/parts`, { method: "DELETE" });
       await refresh();
       setBusy("engine");
@@ -126,12 +181,12 @@ export default function SplitPage() {
       setBusy("splitting");
       const input = await mountInput(ff, file);
       try {
-        for (let i = 0; i < plan.length; i++) {
-          const part = plan[i];
+        for (let i = 0; i < cuts.length; i++) {
+          const part = cuts[i];
           setRow(i, { phase: "encoding", progress: 0 });
           let bytes: Uint8Array;
           try {
-            bytes = await encodePart(ff, input.path, part, plan.length, { crop916: crop, badge }, (p) => setRow(i, { progress: p }));
+            bytes = await encodePart(ff, input.path, part, cuts.length, { crop916: crop, badge }, (p) => setRow(i, { progress: p }));
           } catch (e) {
             setRow(i, { phase: "error", message: e instanceof Error ? e.message : String(e) });
             throw e;
@@ -140,7 +195,13 @@ export default function SplitPage() {
           const form = new FormData();
           form.append("file", new Blob([new Uint8Array(bytes)], { type: "video/mp4" }), `part_${part.part_number}.mp4`);
           form.append("part_number", String(part.part_number));
-          form.append("total_parts", String(plan.length));
+          form.append("total_parts", String(cuts.length));
+          if (part.moment) {
+            form.append("transcript", part.moment.transcript);
+            form.append("ai_score", String(part.moment.score));
+            form.append("ai_important", String(part.moment.important));
+            form.append("ai_reason", part.moment.reason);
+          }
           form.append("start_seconds", String(part.start));
           form.append("duration_seconds", String(part.duration));
           try {
@@ -156,7 +217,7 @@ export default function SplitPage() {
       }
       await refresh();
       setBusy(null);
-      if (aiAfter) await runAi();
+      if (aiAfter && !aiCuts) await runAi();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
       setBusy(null);
@@ -201,7 +262,23 @@ export default function SplitPage() {
           </div>
 
           <div>
-            <span className="label">Part length</span>
+            <span className="label">How should Reelix cut it?</span>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["ai", "AI highlights", "Transcribe first, then cut only the important moments"],
+                ["even", "Even parts", "Cut the whole video into equal parts"],
+              ] as const).map(([m, title, desc]) => (
+                <button key={m} type="button" onClick={() => setMode(m)} disabled={!!busy || locked}
+                  className={`rounded-2xl border-2 p-3 text-left ${mode === m ? "border-coral bg-coral-soft/40" : "border-cream-dark bg-white"}`}>
+                  <span className="block font-display font-bold">{title}</span>
+                  <span className="block text-sm text-muted">{desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="label">{mode === "ai" ? "Max part length" : "Part length"}</span>
             <div className="grid grid-cols-5 gap-2">
               {LENGTHS.map((l) => (
                 <button key={l} type="button" onClick={() => { setLength(l); setCustom(""); }} disabled={!!busy || locked}
@@ -213,28 +290,55 @@ export default function SplitPage() {
                 className={`input min-w-0 px-2 text-center ${custom ? "border-coral" : ""}`} aria-label="Custom part length in seconds" />
             </div>
             <p className="mt-3 rounded-2xl bg-coral-soft/60 px-4 py-3 font-display text-lg font-semibold text-coral-dark">
-              {duration ? `${formatDurationWords(duration)} video at ${partLength} sec = ${plan.length} part${plan.length === 1 ? "" : "s"}` : "Choose a video to see how many parts you'll get"}
+              {!duration
+                ? "Choose a video to see how many parts you'll get"
+                : mode === "ai"
+                  ? moments.length
+                    ? `AI picked ${moments.length} moment${moments.length === 1 ? "" : "s"} from ${formatDurationWords(duration)}`
+                    : `AI picks the moments; each part at most ${partLength} sec`
+                  : `${formatDurationWords(duration)} video at ${partLength} sec = ${plan.length} part${plan.length === 1 ? "" : "s"}${merge && plan.length ? ` of ${Math.round(plan[0].duration)} sec` : ""}`}
             </p>
           </div>
 
           <div className="divide-y divide-cream-dark">
-            <Toggle checked={merge} onChange={setMerge} disabled={!!busy || locked} label="Merge a very short last part" description="If the last part is under a third of the length, add it to the previous part." />
+            {mode === "even" && (
+              <Toggle checked={merge} onChange={setMerge} disabled={!!busy || locked} label="Equal-length parts" description={merge ? "80 sec at 60 sec max = 2 parts of 40 sec. 60 sec or less = 1 part." : "Every part is the full length; the last part gets what's left."} />
+            )}
             <Toggle checked={badge} onChange={setBadge} disabled={!!busy || locked} label='Add a "Part n/N" badge' description="Burned into the top corner of each part." />
             <Toggle checked={crop} onChange={setCrop} disabled={!!busy || locked} label="Crop to 9:16" description={crop ? "Vertical, for Reels and Shorts." : "Keeping the original shape."} />
-            <Toggle checked={aiAfter} onChange={setAiAfter} disabled={!!busy} label="AI analysis after splitting" description="Transcript + mark important parts." />
+            {mode === "even" && (
+              <Toggle checked={aiAfter} onChange={setAiAfter} disabled={!!busy} label="AI analysis after splitting" description="Transcript + mark important parts." />
+            )}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button className="btn-primary flex-1 text-lg" onClick={startSplit} disabled={!file || !plan.length || !!busy || locked}>
-              {busy === "engine" ? <><Spinner /> Loading video engine…</> : busy === "splitting" ? <><Spinner /> Splitting {doneCount}/{rows.length}…</> : parts.length ? "Split again" : `Split into ${plan.length || "…"} parts`}
-            </button>
-            {parts.length > 0 && (
+            {mode === "ai" ? (
+              <>
+                <button className={`${moments.length ? "btn-secondary" : "btn-primary text-lg"} flex-1`} onClick={findMoments} disabled={!file || !duration || !!busy || locked}>
+                  {busy === "engine" ? <><Spinner /> Loading video engine…</>
+                    : busy === "audio" ? <><Spinner /> Reading audio {Math.round(audioProgress * 100)}%</>
+                    : busy === "listening" ? <><Spinner /> Transcribing and finding moments…</>
+                    : moments.length ? "Find moments again" : "Find important moments"}
+                </button>
+                {moments.length > 0 && (
+                  <button className="btn-primary flex-1 text-lg" onClick={cutMoments} disabled={!file || !chosen.length || !!busy || locked}>
+                    {busy === "splitting" ? <><Spinner /> Cutting {doneCount}/{rows.length}…</> : `Cut ${chosen.length} moment${chosen.length === 1 ? "" : "s"} into parts`}
+                  </button>
+                )}
+              </>
+            ) : (
+              <button className="btn-primary flex-1 text-lg" onClick={() => startSplit()} disabled={!file || !plan.length || !!busy || locked}>
+                {busy === "engine" ? <><Spinner /> Loading video engine…</> : busy === "splitting" ? <><Spinner /> Splitting {doneCount}/{rows.length}…</> : parts.length ? "Split again" : `Split into ${plan.length || "…"} parts`}
+              </button>
+            )}
+            {mode === "even" && parts.length > 0 && (
               <button className="btn-secondary flex-1" onClick={runAi} disabled={!!busy || locked}>
                 {busy === "ai" ? <><Spinner /> {aiStage || "Analyzing…"}</> : `Run AI analysis on ${parts.length} parts`}
               </button>
             )}
           </div>
           {busy === "engine" && <p className="text-sm text-muted">First time only: downloading the in-browser video engine (~30 MB).</p>}
+          {!file && parts.length === 0 && mode === "ai" && moments.length > 0 && <p className="text-sm text-muted">Choose the video again to cut these moments.</p>}
         </section>
 
         <section className="card p-5 lg:col-span-2">
@@ -274,6 +378,44 @@ export default function SplitPage() {
           )}
         </section>
       </div>
+
+      {mode === "ai" && moments.length > 0 && (
+        <section className="card mt-6 p-5">
+          <h2 className="text-xl font-bold">Important moments the AI picked</h2>
+          {project.ai_summary && <p className="mt-1 text-muted">{project.ai_summary}</p>}
+          <ol className="mt-4 space-y-3">
+            {moments.map((m, i) => {
+              const on = !skipped.has(i);
+              return (
+                <li key={i} className={`rounded-2xl border-2 p-4 ${!on ? "border-cream-dark opacity-50" : m.important ? "border-coral bg-coral-soft/30" : "border-cream-dark"}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-sm font-semibold">{formatTime(m.start)}–{formatTime(m.start + m.duration)} · {Math.round(m.duration)}s</span>
+                    <ScorePill score={m.score} important={m.important} />
+                  </div>
+                  <p className="mt-1 font-display font-bold">{m.title}</p>
+                  <p className="text-sm text-muted">{m.reason}</p>
+                  {m.transcript && <p className="mt-2 rounded-xl bg-cream px-3 py-2 text-sm">{m.transcript}</p>}
+                  <label className="mt-3 flex min-h-12 cursor-pointer items-center gap-3">
+                    <input type="checkbox" className="h-5 w-5 accent-coral" checked={on} disabled={!!busy || locked}
+                      onChange={() => setSkipped((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} />
+                    <span className="text-sm font-semibold">Cut this moment</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ol>
+          {segments.length > 0 && (
+            <details className="mt-4">
+              <summary className="min-h-12 cursor-pointer py-3 font-semibold">Full transcript timeline ({segments.length} segments)</summary>
+              <ol className="space-y-1 text-sm">
+                {segments.map((sg) => (
+                  <li key={sg.index} className="flex gap-3"><span className="w-24 shrink-0 font-mono text-muted">{formatTime(sg.start)}–{formatTime(sg.end)}</span><span>{sg.text || <em className="text-muted">(no speech)</em>}</span></li>
+                ))}
+              </ol>
+            </details>
+          )}
+        </section>
+      )}
 
       <AiTimeline project={project} parts={parts} busyLabel={busy === "ai" ? aiStage : null} />
 

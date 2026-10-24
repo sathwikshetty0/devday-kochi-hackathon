@@ -7,21 +7,51 @@ export interface PlannedPart {
 export const MAX_PART_BYTES = 20 * 1024 * 1024;
 export const AUDIO_KBPS = 96;
 
-/** A last part shorter than this fraction of the part length counts as "very short". */
-export const SHORT_LAST_FRACTION = 1 / 3;
-
-export function planParts(totalSeconds: number, partLength: number, mergeShortLast: boolean): PlannedPart[] {
-  if (!(totalSeconds > 0) || !(partLength > 0)) return [];
+/**
+ * Plans the parts. With `even` on, the video is cut into the fewest parts that are each at most
+ * `maxLength` long, all the same length (80 s at 60 s max = 2 x 40 s; 60 s or less = 1 part).
+ * With `even` off, every part is exactly `maxLength` and the last one keeps the remainder.
+ */
+export function planParts(totalSeconds: number, maxLength: number, even = true): PlannedPart[] {
+  if (!(totalSeconds > 0) || !(maxLength > 0)) return [];
+  if (even) return splitRange(0, totalSeconds, maxLength).map((r, i) => ({ part_number: i + 1, ...r }));
   const parts: PlannedPart[] = [];
-  for (let start = 0; start < totalSeconds - 0.05; start += partLength) {
-    parts.push({ part_number: parts.length + 1, start, duration: Math.min(partLength, totalSeconds - start) });
-  }
-  const last = parts[parts.length - 1];
-  if (mergeShortLast && parts.length > 1 && last.duration < partLength * SHORT_LAST_FRACTION) {
-    parts.pop();
-    parts[parts.length - 1].duration += last.duration;
+  for (let start = 0; start < totalSeconds - 0.05; start += maxLength) {
+    parts.push({ part_number: parts.length + 1, start, duration: Math.min(maxLength, totalSeconds - start) });
   }
   return parts;
+}
+
+/** Splits [start, start+duration) into the fewest equal pieces no longer than maxLength. */
+export function splitRange(start: number, duration: number, maxLength: number) {
+  const n = Math.max(1, Math.ceil((duration - 0.05) / maxLength));
+  const each = duration / n;
+  return Array.from({ length: n }, (_, i) => ({ start: start + i * each, duration: each }));
+}
+
+/**
+ * Cuts audio into windows of minSec..maxSec, ending each window at the quietest frame
+ * so speech isn't chopped mid-word. `frames` holds one loudness value per `frameSec`.
+ */
+export function silenceWindows(frames: number[], frameSec: number, minSec: number, maxSec: number) {
+  const total = frames.length * frameSec;
+  const windows: { start: number; end: number }[] = [];
+  let pos = 0;
+  while (total - pos > maxSec) {
+    const from = Math.ceil((pos + minSec) / frameSec);
+    const to = Math.min(frames.length - 1, Math.floor((pos + maxSec) / frameSec));
+    let best = to;
+    for (let i = to; i >= from; i--) if (frames[i] < frames[best]) best = i;
+    const cut = (best + 0.5) * frameSec;
+    windows.push({ start: pos, end: cut });
+    pos = cut;
+  }
+  if (total - pos > 0.05) {
+    const last = windows[windows.length - 1];
+    if (last && total - pos < minSec / 2) last.end = total;
+    else windows.push({ start: pos, end: total });
+  }
+  return windows;
 }
 
 /** Video bitrate (kbps) that keeps a part of `durationSeconds` under 20 MB with ~10% headroom. */

@@ -158,3 +158,19 @@ export async function encodePart(
   }
   throw new Error(`Part ${part.part_number} is still over 20 MB. Choose a shorter part length.`);
 }
+
+/** Pulls a small mono 16 kHz AAC track out of the video for full-length transcription. */
+export async function extractAudio(ff: FFmpeg, inputPath: string, duration: number, onProgress: (ratio: number) => void): Promise<Uint8Array> {
+  const out = "/audio.m4a";
+  logListener = (m) => {
+    const t = m.match(/time=(\d+:\d+:\d+(?:\.\d+)?)/);
+    if (t) onProgress(Math.min(0.99, parseClock(t[1]) / duration));
+  };
+  const code = await ff.exec(["-hide_banner", "-y", "-i", inputPath, "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-c:a", "aac", "-b:a", "48k", "-movflags", "+faststart", out]);
+  logListener = null;
+  if (code !== 0) throw new Error("Couldn't read the audio from this video. It may have no sound track; use Even parts instead.");
+  const data = (await ff.readFile(out)) as Uint8Array;
+  await ff.deleteFile(out).catch(() => {});
+  onProgress(1);
+  return data;
+}

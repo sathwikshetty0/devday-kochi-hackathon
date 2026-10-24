@@ -28,6 +28,12 @@ export interface Project {
   status: ProjectStatus;
   rights_confirmed: boolean;
   ai_summary: string | null;
+  /** "even" = equal parts, "ai" = AI picks the important moments from the full transcript */
+  split_mode?: "even" | "ai";
+  /** JSON: Segment[] transcript timeline of the full video (AI mode) */
+  timeline?: string | null;
+  /** JSON: Moment[] the AI chose to cut (AI mode) */
+  ai_plan?: string | null;
   created_date: string;
   part_count?: number;
 }

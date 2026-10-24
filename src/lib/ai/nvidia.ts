@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 const BASE_URL = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
-const FALLBACK_MODELS = ["openai/gpt-oss-20b", "nvidia/nemotron-3-ultra-550b-a55b"];
+// Fastest first (measured on build.nvidia.com); later ones take over if a model is retired, overloaded or slow.
+const FALLBACK_MODELS = [
+  "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "minimaxai/minimax-m3.1-flash",
+  "nvidia/nemotron-3.5-bolt-e4b",
+];
 export const LLM_MODELS = [...new Set([process.env.NVIDIA_LLM_MODEL, ...FALLBACK_MODELS].filter((m): m is string => !!m))];
 
 export function nvidiaKey() {
@@ -23,8 +29,16 @@ async function chatWith(model: string, messages: { role: string; content: string
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${nvidiaKey()}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ model, messages, temperature: 0.2, top_p: 0.7, max_tokens: 4096 }),
-    signal: AbortSignal.timeout(120_000),
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.2,
+      top_p: 0.7,
+      max_tokens: 4096,
+      // Nemotron models "think" for thousands of tokens by default (30 s+); JSON tasks don't need it.
+      ...(model.startsWith("nvidia/") ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+    }),
+    signal: AbortSignal.timeout(40_000),
   });
   if (!res.ok) {
     const err = new Error(`NVIDIA LLM error ${res.status} (${model}): ${(await res.text()).slice(0, 300)}`);
@@ -35,7 +49,7 @@ async function chatWith(model: string, messages: { role: string; content: string
   return json.choices?.[0]?.message?.content ?? "";
 }
 
-/** Tries each model in order, moving on when a model is retired or unavailable for this key. */
+/** Tries each model in order, moving on when a model is retired, overloaded or too slow. */
 async function chat(messages: { role: string; content: string }[]) {
   let lastError: unknown;
   for (const model of LLM_MODELS) {
@@ -43,8 +57,9 @@ async function chat(messages: { role: string; content: string }[]) {
       return await chatWith(model, messages);
     } catch (e) {
       lastError = e;
-      const status = (e as { status?: number }).status;
-      if (status !== 404 && status !== 410) throw e;
+      const status = (e as { status?: number }).status ?? 0;
+      const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+      if (!timedOut && ![404, 410, 429, 500, 502, 503, 504].includes(status)) throw e;
     }
   }
   throw lastError;
