@@ -100,6 +100,7 @@ export function db(): Db {
   const cols = new Set((_db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).map((c) => c.name));
   if (!cols.has("split_mode")) _db.exec("ALTER TABLE projects ADD COLUMN split_mode TEXT NOT NULL DEFAULT 'even'");
   if (!cols.has("timeline")) _db.exec("ALTER TABLE projects ADD COLUMN timeline TEXT");
+  if (!cols.has("aspect_ratio")) _db.exec("ALTER TABLE projects ADD COLUMN aspect_ratio TEXT NOT NULL DEFAULT 'original'");
   if (!cols.has("ai_plan")) _db.exec("ALTER TABLE projects ADD COLUMN ai_plan TEXT");
   return _db;
 }

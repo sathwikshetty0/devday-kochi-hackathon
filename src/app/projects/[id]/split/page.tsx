@@ -7,8 +7,9 @@ import { AiTimeline } from "@/components/AiTimeline";
 import { ErrorBanner, PageLoading, ProgressBar, ScorePill, Spinner, StepIndicator, Toggle, stepForStatus } from "@/components/ui";
 import type { Moment, Segment } from "@/lib/ai/moments";
 import { api, getOriginalVideo, setOriginalVideo, uploadWithProgress, useProject } from "@/lib/client";
-import { formatDurationWords, formatTime, planParts, type PlannedPart } from "@/lib/split-math";
-import { browserDuration, encodePart, extractAudio, ffmpegDuration, loadFFmpeg, mountInput } from "@/lib/splitter";
+import { formatDurationWords, formatTime, planParts, ratioLabel, type PlannedPart } from "@/lib/split-math";
+import { ASPECT_RATIOS, type AspectRatio } from "@/lib/types";
+import { browserVideoInfo, encodePart, extractAudio, ffmpegDuration, loadFFmpeg, mountInput } from "@/lib/splitter";
 
 const LENGTHS = [15, 30, 45, 60];
 const CLIP_COUNTS = [3, 5, 10, 15];
@@ -40,7 +41,8 @@ export default function SplitPage() {
   const [custom, setCustom] = useState("");
   const [merge, setMerge] = useState(true);
   const [badge, setBadge] = useState(true);
-  const [crop, setCrop] = useState(false);
+  const [aspect, setAspect] = useState<AspectRatio>("original");
+  const [dims, setDims] = useState<{ width: number; height: number } | null>(null);
   const [aiAfter, setAiAfter] = useState(true);
   const [busy, setBusy] = useState<Busy>(null);
   const [rows, setRows] = useState<RowState[]>([]);
@@ -56,6 +58,9 @@ export default function SplitPage() {
   const moments = useMemo(() => parseJson<Moment[]>(project?.ai_plan, []), [project?.ai_plan]);
   const segments = useMemo(() => parseJson<Segment[]>(project?.timeline, []), [project?.timeline]);
   const chosen = moments.filter((_, i) => !skipped.has(i));
+  const originalRatio = dims ? ratioLabel(dims.width, dims.height) : "";
+  // Picking the ratio the video already has is the same as keeping it: no crop.
+  const outputAspect = aspect !== "original" && aspect === originalRatio ? "original" : aspect;
   const wantedClips = customCount ? Math.max(1, Math.min(50, Math.round(Number(customCount) || 1))) : clipCount;
   const locked = !!project && ["delivering", "completed", "stopped", "failed", "awaiting_approval"].includes(project.status);
 
@@ -67,7 +72,7 @@ export default function SplitPage() {
     setMerge(project.merge_short_last);
     if (project.split_mode) setMode(project.split_mode);
     setBadge(project.add_part_badge);
-    setCrop(project.crop_9_16);
+    setAspect(project.aspect_ratio ?? "original");
     const f = getOriginalVideo(id);
     if (f) choose(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,7 +89,10 @@ export default function SplitPage() {
     setFile(f);
     setOriginalVideo(id, f);
     setDuration(null);
-    const d = await browserDuration(f);
+    setDims(null);
+    const info = await browserVideoInfo(f);
+    if (info.width && info.height) setDims({ width: info.width, height: info.height });
+    const d = info.duration;
     if (d) return setDuration(d);
     try {
       setBusy("engine");
@@ -139,7 +147,7 @@ export default function SplitPage() {
     setActionError(null);
     setSkipped(new Set());
     try {
-      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, split_mode: "ai", add_part_badge: badge, crop_9_16: crop } });
+      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, split_mode: "ai", add_part_badge: badge, aspect_ratio: aspect, crop_9_16: aspect === "9:16" } });
       setBusy("engine");
       const ff = await loadFFmpeg();
       setBusy("audio");
@@ -178,7 +186,7 @@ export default function SplitPage() {
     const aiCuts = cuts.some((c) => c.moment);
     setRows(cuts.map(() => ({ phase: "waiting", progress: 0 })));
     try {
-      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, merge_short_last: merge, add_part_badge: badge, crop_9_16: crop, split_mode: aiCuts ? "ai" : "even" } });
+      await api(`/api/projects/${id}`, { method: "PATCH", json: { part_length_seconds: partLength, merge_short_last: merge, add_part_badge: badge, aspect_ratio: aspect, crop_9_16: aspect === "9:16", split_mode: aiCuts ? "ai" : "even" } });
       await api(`/api/projects/${id}/parts`, { method: "DELETE" });
       await refresh();
       setBusy("engine");
@@ -191,7 +199,7 @@ export default function SplitPage() {
           setRow(i, { phase: "encoding", progress: 0 });
           let bytes: Uint8Array;
           try {
-            bytes = await encodePart(ff, input.path, part, cuts.length, { crop916: crop, badge }, (p) => setRow(i, { progress: p }));
+            bytes = await encodePart(ff, input.path, part, cuts.length, { aspect: outputAspect, badge }, (p) => setRow(i, { progress: p }));
           } catch (e) {
             setRow(i, { phase: "error", message: e instanceof Error ? e.message : String(e) });
             throw e;
@@ -321,12 +329,30 @@ export default function SplitPage() {
             </p>
           </div>
 
+          <div>
+            <span className="label">Aspect ratio</span>
+            <p className="mb-2 text-sm text-muted">
+              {dims ? <>Original: <b className="text-ink">{originalRatio}</b> · {dims.width}×{dims.height}</> : "Choose a video to see its original ratio"}
+            </p>
+            <div className="grid grid-cols-5 gap-2">
+              {ASPECT_RATIOS.map((r) => (
+                <button key={r} type="button" onClick={() => setAspect(r)} disabled={!!busy || locked}
+                  className={`min-h-12 rounded-2xl border px-1 text-sm font-semibold ${aspect === r ? "border-coral bg-coral text-white" : "border-cream-dark bg-white"}`}>
+                  {r === "original" ? <>Original{originalRatio && <span className="block text-xs font-normal">{originalRatio}</span>}</> : r}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-sm text-muted">
+              {outputAspect === "original" ? "Parts keep the exact shape of your video." : `Parts are cropped from the center to ${outputAspect}.`}
+            </p>
+          </div>
+
           <div className="divide-y divide-cream-dark">
             {mode === "even" && (
               <Toggle checked={merge} onChange={setMerge} disabled={!!busy || locked} label="Equal-length parts" description={merge ? "80 sec at 60 sec max = 2 parts of 40 sec. 60 sec or less = 1 part." : "Every part is the full length; the last part gets what's left."} />
             )}
             <Toggle checked={badge} onChange={setBadge} disabled={!!busy || locked} label='Add a "Part n/N" badge' description="Burned into the top corner of each part." />
-            <Toggle checked={crop} onChange={setCrop} disabled={!!busy || locked} label="Crop to 9:16" description={crop ? "Vertical, for Reels and Shorts." : "Keeping the original shape."} />
+
             {mode === "even" && (
               <Toggle checked={aiAfter} onChange={setAiAfter} disabled={!!busy} label="AI analysis after splitting" description="Transcript + mark important parts." />
             )}

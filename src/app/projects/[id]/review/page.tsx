@@ -44,7 +44,7 @@ function PartCard({ part, index, count, locked, onMove, onRemove, onSaved, onErr
     <li ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}
       className={`card flex flex-col overflow-hidden ${part.ai_important ? "ring-2 ring-coral" : ""} ${isDragging ? "z-20 opacity-80 shadow-2xl" : ""}`}>
       <div className="relative bg-ink">
-        <video src={`${part.video_url}#t=0.1`} controls playsInline preload="metadata" className="aspect-[9/16] max-h-80 w-full bg-black object-contain sm:aspect-video" />
+        <video src={`${part.video_url}#t=0.1`} controls playsInline preload="metadata" className="h-80 w-full bg-black object-contain" />
         <span className="absolute left-3 top-3 rounded-full bg-black/70 px-3 py-1 text-xs font-bold text-white">{part.part_number}/{part.total_parts}</span>
       </div>
       <div className="flex flex-1 flex-col gap-3 p-4">

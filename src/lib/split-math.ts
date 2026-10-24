@@ -76,3 +76,16 @@ export function formatDurationWords(seconds: number) {
   const s = Math.round(seconds % 60);
   return s ? `${m} min ${s} sec` : `${m} min`;
 }
+
+const COMMON_RATIOS: [number, number][] = [[16, 9], [9, 16], [4, 3], [3, 4], [1, 1], [4, 5], [5, 4], [3, 2], [2, 3], [21, 9]];
+
+/** Human ratio for a width x height, snapping to common ratios within 2% (1366x768 -> "16:9"). */
+export function ratioLabel(width: number, height: number) {
+  if (!(width > 0) || !(height > 0)) return "";
+  const r = width / height;
+  const near = COMMON_RATIOS.find(([a, b]) => Math.abs(a / b - r) / r < 0.02);
+  if (near) return `${near[0]}:${near[1]}`;
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+  const g = gcd(Math.round(width), Math.round(height));
+  return `${Math.round(width) / g}:${Math.round(height) / g}`;
+}

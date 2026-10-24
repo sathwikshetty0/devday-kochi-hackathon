@@ -4,6 +4,9 @@ export const LANGUAGES = [
   "Gujarati", "Punjabi", "Odia", "Urdu", "English", "Mixed",
 ] as const;
 
+export const ASPECT_RATIOS = ["original", "9:16", "1:1", "4:5", "16:9"] as const;
+export type AspectRatio = (typeof ASPECT_RATIOS)[number];
+
 export type ProjectStatus =
   | "draft" | "splitting" | "review" | "awaiting_approval"
   | "delivering" | "completed" | "stopped" | "failed";
@@ -22,6 +25,8 @@ export interface Project {
   merge_short_last: boolean;
   add_part_badge: boolean;
   crop_9_16: boolean;
+  /** Output shape: "original" keeps the source ratio, otherwise a centered crop */
+  aspect_ratio?: AspectRatio;
   simulate_failure: boolean;
   failure_simulated: boolean;
   send_important_only: boolean;

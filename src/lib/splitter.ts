@@ -27,7 +27,18 @@ export function loadFFmpeg(): Promise<FFmpeg> {
   return ffmpegPromise;
 }
 
-export function browserDuration(file: File, timeoutMs = 8000): Promise<number | null> {
+export interface VideoInfo {
+  duration: number | null;
+  width: number;
+  height: number;
+}
+
+export async function browserDuration(file: File, timeoutMs = 8000): Promise<number | null> {
+  return (await browserVideoInfo(file, timeoutMs)).duration;
+}
+
+/** Length and display size (already rotated for phone videos) from the browser's own decoder. */
+export function browserVideoInfo(file: File, timeoutMs = 8000): Promise<VideoInfo> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
@@ -35,9 +46,10 @@ export function browserDuration(file: File, timeoutMs = 8000): Promise<number | 
     v.muted = true;
     const done = (d: number | null) => {
       clearTimeout(timer);
+      const info = { duration: d, width: v.videoWidth || 0, height: v.videoHeight || 0 };
       URL.revokeObjectURL(url);
       v.removeAttribute("src");
-      resolve(d);
+      resolve(info);
     };
     const timer = setTimeout(() => done(null), timeoutMs);
     v.onloadedmetadata = () => done(Number.isFinite(v.duration) && v.duration > 0 ? v.duration : null);
@@ -93,14 +105,18 @@ async function ensureFont(ff: FFmpeg) {
 }
 
 export interface EncodeOptions {
-  crop916: boolean;
+  /** "original" keeps the source shape; "w:h" crops the center to that ratio */
+  aspect: string;
   badge: boolean;
 }
 
 function videoFilter(opts: EncodeOptions, part: PlannedPart, total: number, withBadge: boolean) {
-  const filters = opts.crop916
-    ? ["crop='min(iw,ih*9/16)':'min(ih,iw*16/9)'", "scale=-2:'min(1280,ih)'"]
-    : ["scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'"];
+  // Square the pixels first so phone/camera videos with non-square pixels keep their real shape.
+  const filters = ["scale='trunc(iw*sar/2)*2':'trunc(ih/2)*2'", "setsar=1"];
+  const [a, b] = opts.aspect.split(":").map(Number);
+  if (a > 0 && b > 0) filters.push(`crop='trunc(min(iw,ih*${a}/${b})/2)*2':'trunc(min(ih,iw*${b}/${a})/2)*2'`);
+  // Short side at most 720 px, long side scaled to match (always even for H.264).
+  filters.push("scale='if(gt(iw,ih),-2,min(720,iw))':'if(gt(iw,ih),min(720,ih),-2)'", "setsar=1");
   if (withBadge) {
     filters.push(
       `drawtext=fontfile=/badge.ttf:text='Part ${part.part_number}/${total}':fontcolor=white:fontsize=h/22:box=1:boxcolor=black@0.55:boxborderw=14:x=w-tw-28:y=28`,

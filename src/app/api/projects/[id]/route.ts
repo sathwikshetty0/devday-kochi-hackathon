@@ -2,7 +2,7 @@ import { z } from "zod";
 import { HttpError, bundle, handle, requireProject, type Ctx } from "@/lib/api";
 import { db, renumberParts, updateProject } from "@/lib/db";
 import { deleteDir } from "@/lib/storage";
-import { CONTENT_TYPES, LANGUAGES } from "@/lib/types";
+import { CONTENT_TYPES, LANGUAGES, ASPECT_RATIOS } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -17,6 +17,7 @@ const PatchSchema = z
     split_mode: z.enum(["even", "ai"]),
     add_part_badge: z.boolean(),
     crop_9_16: z.boolean(),
+    aspect_ratio: z.enum(ASPECT_RATIOS),
     simulate_failure: z.boolean(),
     send_important_only: z.boolean(),
   })

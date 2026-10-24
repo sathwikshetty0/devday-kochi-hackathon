@@ -44,3 +44,12 @@ it("formats time ranges", () => {
   expect(formatTime(90)).toBe("1:30");
   expect(formatTime(3725)).toBe("1:02:05");
 });
+
+import { ratioLabel } from "@/lib/split-math";
+it("labels aspect ratios", () => {
+  expect(ratioLabel(1920, 1080)).toBe("16:9");
+  expect(ratioLabel(1080, 1920)).toBe("9:16");
+  expect(ratioLabel(1366, 768)).toBe("16:9");
+  expect(ratioLabel(1080, 1350)).toBe("4:5");
+  expect(ratioLabel(1000, 700)).toBe("10:7");
+});
