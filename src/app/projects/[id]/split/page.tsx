@@ -11,6 +11,7 @@ import { formatDurationWords, formatTime, planParts, type PlannedPart } from "@/
 import { browserDuration, encodePart, extractAudio, ffmpegDuration, loadFFmpeg, mountInput } from "@/lib/splitter";
 
 const LENGTHS = [15, 30, 45, 60];
+const CLIP_COUNTS = [3, 5, 10, 15];
 
 type RowState = { phase: "waiting" | "encoding" | "uploading" | "done" | "error"; progress: number; message?: string };
 type Busy = null | "engine" | "splitting" | "ai" | "audio" | "listening";
@@ -33,6 +34,8 @@ export default function SplitPage() {
   const [length, setLength] = useState(60);
   const [mode, setMode] = useState<Mode>("ai");
   const [skipped, setSkipped] = useState<Set<number>>(new Set());
+  const [clipCount, setClipCount] = useState(5);
+  const [customCount, setCustomCount] = useState("");
   const [audioProgress, setAudioProgress] = useState(0);
   const [custom, setCustom] = useState("");
   const [merge, setMerge] = useState(true);
@@ -53,6 +56,7 @@ export default function SplitPage() {
   const moments = useMemo(() => parseJson<Moment[]>(project?.ai_plan, []), [project?.ai_plan]);
   const segments = useMemo(() => parseJson<Segment[]>(project?.timeline, []), [project?.timeline]);
   const chosen = moments.filter((_, i) => !skipped.has(i));
+  const wantedClips = customCount ? Math.max(1, Math.min(50, Math.round(Number(customCount) || 1))) : clipCount;
   const locked = !!project && ["delivering", "completed", "stopped", "failed", "awaiting_approval"].includes(project.status);
 
   useEffect(() => {
@@ -151,6 +155,7 @@ export default function SplitPage() {
       const form = new FormData();
       form.append("audio", new Blob([new Uint8Array(audio)], { type: "audio/mp4" }), "audio.m4a");
       form.append("max_length", String(partLength));
+      form.append("clip_count", String(wantedClips));
       await uploadWithProgress(`/api/projects/${id}/timeline`, form, () => {});
       await refresh();
     } catch (e) {
@@ -277,8 +282,24 @@ export default function SplitPage() {
             </div>
           </div>
 
+          {mode === "ai" && (
+            <div>
+              <span className="label">How many clips with hooks?</span>
+              <div className="grid grid-cols-5 gap-2">
+                {CLIP_COUNTS.map((n) => (
+                  <button key={n} type="button" onClick={() => { setClipCount(n); setCustomCount(""); }} disabled={!!busy || locked}
+                    className={`min-h-12 rounded-2xl border font-semibold ${!customCount && clipCount === n ? "border-coral bg-coral text-white" : "border-cream-dark bg-white"}`}>
+                    {n}
+                  </button>
+                ))}
+                <input inputMode="numeric" placeholder="Custom" value={customCount} onChange={(e) => setCustomCount(e.target.value.replace(/\D/g, "").slice(0, 2))} disabled={!!busy || locked}
+                  className={`input min-w-0 px-2 text-center ${customCount ? "border-coral" : ""}`} aria-label="Custom number of clips" />
+              </div>
+            </div>
+          )}
+
           <div>
-            <span className="label">{mode === "ai" ? "Max part length" : "Part length"}</span>
+            <span className="label">{mode === "ai" ? "Max clip length" : "Part length"}</span>
             <div className="grid grid-cols-5 gap-2">
               {LENGTHS.map((l) => (
                 <button key={l} type="button" onClick={() => { setLength(l); setCustom(""); }} disabled={!!busy || locked}
@@ -295,7 +316,7 @@ export default function SplitPage() {
                 : mode === "ai"
                   ? moments.length
                     ? `AI picked ${moments.length} moment${moments.length === 1 ? "" : "s"} from ${formatDurationWords(duration)}`
-                    : `AI picks the moments; each part at most ${partLength} sec`
+                    : `AI finds the ${wantedClips} strongest hook${wantedClips === 1 ? "" : "s"}, each up to ${partLength} sec`
                   : `${formatDurationWords(duration)} video at ${partLength} sec = ${plan.length} part${plan.length === 1 ? "" : "s"}${merge && plan.length ? ` of ${Math.round(plan[0].duration)} sec` : ""}`}
             </p>
           </div>
@@ -318,7 +339,7 @@ export default function SplitPage() {
                   {busy === "engine" ? <><Spinner /> Loading video engine…</>
                     : busy === "audio" ? <><Spinner /> Reading audio {Math.round(audioProgress * 100)}%</>
                     : busy === "listening" ? <><Spinner /> Transcribing and finding moments…</>
-                    : moments.length ? "Find moments again" : "Find important moments"}
+                    : moments.length ? "Find moments again" : `Find ${wantedClips} hook clip${wantedClips === 1 ? "" : "s"}`}
                 </button>
                 {moments.length > 0 && (
                   <button className="btn-primary flex-1 text-lg" onClick={cutMoments} disabled={!file || !chosen.length || !!busy || locked}>

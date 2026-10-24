@@ -57,3 +57,15 @@ it("never lets everything be important", () => {
 it("marks the best part when the model marks nothing", () => {
   expect(enforceImportance([{ score: 65, important: false }, { score: 40, important: false }]).map((o) => o.important)).toEqual([true, false]);
 });
+
+it("with a clip count, returns exactly that many strongest clips in time order, each within max length", () => {
+  const segs = Array.from({ length: 12 }, (_, i) => ({ index: i, start: i * 10, end: (i + 1) * 10, text: `s${i}` }));
+  const out = normalizeMoments(segs, { summary: "", moments: [
+    { start_segment: 9, end_segment: 11, title: "C", score: 95, important: true, reason: "r" },
+    { start_segment: 0, end_segment: 0, title: "A", score: 40, important: false, reason: "r" },
+    { start_segment: 3, end_segment: 4, title: "B", score: 80, important: true, reason: "r" },
+    { start_segment: 6, end_segment: 6, title: "D", score: 60, important: false, reason: "r" },
+  ] }, 20, 3);
+  expect(out.map((m) => m.title)).toEqual(["B", "D", "C"]);
+  expect(out[2]).toMatchObject({ start: 90, duration: 20, transcript: "s9 s10" });
+});

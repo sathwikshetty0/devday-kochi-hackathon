@@ -10,7 +10,7 @@ export const maxDuration = 300;
 const MAX_AUDIO_BYTES = 60 * 1024 * 1024;
 
 /**
- * AI-first mode: receives the full audio track (multipart: audio, max_length), transcribes it as a
+ * AI-first mode: receives the full audio track (multipart: audio, max_length, clip_count?), transcribes it as a
  * timeline, and asks the AI which important moments to cut. Nothing is cut here.
  */
 export const POST = handle(async (req: Request, { params }: Ctx<{ id: string }>) => {
@@ -21,6 +21,8 @@ export const POST = handle(async (req: Request, { params }: Ctx<{ id: string }>)
   const audio = form.get("audio");
   if (!(audio instanceof Blob) || !audio.size) throw new HttpError(400, "Missing audio");
   if (audio.size > MAX_AUDIO_BYTES) throw new HttpError(400, "The audio is too long. Try a shorter video.");
+  const countRaw = Number(form.get("clip_count"));
+  const clipCount = Number.isInteger(countRaw) && countRaw > 0 ? Math.min(50, countRaw) : undefined;
   const maxLength = Math.max(5, Math.min(600, Math.round(Number(form.get("max_length")) || project.part_length_seconds)));
 
   logActivity(id, null, "AI timeline started", "Transcribing the full video");
@@ -35,7 +37,7 @@ export const POST = handle(async (req: Request, { params }: Ctx<{ id: string }>)
   logActivity(id, null, "Transcript timeline ready", `${segments.length} segments in ${secs(t0)}`);
   const t1 = Date.now();
 
-  const { summary, moments } = await pickMoments(project, segments, maxLength);
+  const { summary, moments } = await pickMoments(project, segments, maxLength, clipCount);
   updateProject(id, { ai_plan: JSON.stringify(moments), ai_summary: summary });
   logActivity(id, null, "AI picked important moments", `${moments.length} parts, ${moments.filter((m) => m.important).length} marked important (${secs(t1)})`);
   return bundle(id);

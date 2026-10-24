@@ -151,8 +151,8 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 }
 
 /**
- * Transcribes a whole audio track as a timeline: the audio is cut into 8-20 s windows at quiet
- * points, and each window is transcribed (4 at a time) so every line has a start and end time.
+ * Transcribes a whole audio track as a timeline: the audio is cut into 4-10 s windows at quiet
+ * points, and each window is transcribed (8 at a time) so every line has a start and end time.
  */
 export async function transcribeTimeline(audio: Buffer, language: string): Promise<Segment[]> {
   // Written to a temp file because MP4/M4A input can't always be read from a pipe.
@@ -166,9 +166,9 @@ export async function transcribeTimeline(audio: Buffer, language: string): Promi
     await fs.rm(dir, { recursive: true, force: true });
   }
   const frames = loudnessFrames(pcm);
-  const windows = silenceWindows(frames, FRAME_SEC, 8, 20);
+  const windows = silenceWindows(frames, FRAME_SEC, 4, 10);
   const code = whisperLanguageCode(language);
-  return mapLimit(windows, 4, async (w) => {
+  return mapLimit(windows, 8, async (w) => {
     const chunk = pcm.subarray(Math.floor(w.start * 16000) * 2, Math.floor(w.end * 16000) * 2);
     let text = "";
     if (chunk.length >= 16000 && pcmRms(chunk) >= 0.003) {
