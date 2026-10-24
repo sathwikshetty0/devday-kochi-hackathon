@@ -41,18 +41,29 @@ export default function Dashboard() {
 
   return (
     <div>
-      <section className="mb-8">
-        <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
-          Upload once. Approve once.
-          <br />
-          <span className="text-coral">Reelix handles the rest.</span>
-        </h1>
-        <p className="mt-3 max-w-xl text-muted">Turn one long video into a numbered series of short parts, let AI find the moments that matter, approve the whole series once, and get proof for every part delivered to Telegram.</p>
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-          <Link href="/projects/new" className="btn-primary text-lg">+ New project</Link>
-          <button className="btn-secondary text-lg" onClick={loadSample} disabled={loadingSample}>
-            {loadingSample ? <><Spinner /> Loading sample…</> : "Load sample project"}
-          </button>
+      <section className="relative mb-10 overflow-hidden rounded-3xl border border-cream-dark bg-gradient-to-br from-white via-cream to-coral-soft/30 p-8 sm:p-12 shadow-[0_12px_40px_-15px_rgba(255,85,51,0.15)]">
+        <div className="relative z-10 max-w-2xl">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-coral/30 bg-coral-soft/60 px-3.5 py-1 text-xs font-bold text-coral-dark">
+            <span>✨ AI-Powered Video Clipper & Auto-Publisher</span>
+          </div>
+          <h1 className="text-4xl font-bold leading-[1.15] sm:text-5xl text-ink">
+            Upload once. Approve once.
+            <br />
+            <span className="bg-gradient-to-r from-coral to-coral-dark bg-clip-text text-transparent">
+              Reelix handles the rest.
+            </span>
+          </h1>
+          <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
+            Turn one long video into numbered short parts with AI timeline intelligence. Approve once, and let Reelix automatically deliver to <strong>Telegram</strong>, <strong>YouTube Shorts</strong>, or <strong>Instagram Reels</strong> with verified proof.
+          </p>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <Link href="/projects/new" className="btn-primary text-lg shadow-lg shadow-coral/25">
+              + New project
+            </Link>
+            <button className="btn-secondary text-lg" onClick={loadSample} disabled={loadingSample}>
+              {loadingSample ? <><Spinner /> Loading sample…</> : "Load sample project"}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -69,15 +80,18 @@ export default function Dashboard() {
       )}
       <div className="grid gap-4 sm:grid-cols-2">
         {projects?.map((p) => (
-          <Link key={p.id} href={`/projects/${p.id}/${PATHS[stepForStatus(p.status)]}`} className="card block p-5 transition hover:-translate-y-0.5 hover:shadow-lg">
+          <Link key={p.id} href={`/projects/${p.id}/${PATHS[stepForStatus(p.status)]}`} className="card-hover block p-5">
             <div className="flex items-start justify-between gap-3">
               <h3 className="text-lg font-bold leading-snug">{p.title}</h3>
               <StatusBadge status={p.status} />
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm text-muted">
-              <span className="rounded-full bg-cream px-3 py-1">{p.content_type}</span>
-              <span className="rounded-full bg-cream px-3 py-1">{p.language}</span>
-              <span className="rounded-full bg-cream px-3 py-1">{p.part_count ?? 0} parts</span>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
+              <span className="rounded-full bg-cream-dark/60 font-semibold px-2.5 py-1">{p.content_type}</span>
+              <span className="rounded-full bg-cream-dark/60 font-semibold px-2.5 py-1">{p.language}</span>
+              <span className="rounded-full bg-coral-soft font-semibold text-coral-dark px-2.5 py-1">
+                {p.delivery_channel === "instagram" ? "📸 Instagram" : p.delivery_channel === "youtube" ? "🔴 YouTube" : "✈️ Telegram"}
+              </span>
+              <span className="rounded-full bg-cream-dark/60 font-semibold px-2.5 py-1">{p.part_count ?? 0} parts</span>
             </div>
             <p className="mt-3 text-xs text-muted">Created {new Date(p.created_date).toLocaleString()}</p>
           </Link>

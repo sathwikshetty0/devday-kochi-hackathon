@@ -17,15 +17,23 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body className={`${bricolage.variable} ${dmSans.variable} antialiased`}>
-        <header className="sticky top-0 z-30 border-b border-cream-dark bg-cream/90 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-cream-dark/80 bg-white/70 backdrop-blur-md">
           <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-4">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-coral font-display text-lg font-bold text-white">R</span>
-              <span className="font-display text-2xl font-bold">Reelix</span>
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-tr from-coral-dark to-coral font-display text-xl font-bold text-white shadow-md shadow-coral/30 group-hover:scale-105 transition">
+                R
+              </span>
+              <div className="flex flex-col">
+                <span className="font-display text-2xl font-bold tracking-tight text-ink leading-none">Reelix</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-muted">Auto Clipper</span>
+              </div>
             </Link>
-            <nav className="flex items-center gap-1">
-              <Link href="/" className="btn-ghost min-h-11 px-3 text-sm">Projects</Link>
-              <Link href="/settings" className="btn-ghost min-h-11 px-3 text-sm">Settings</Link>
+            <nav className="flex items-center gap-2">
+              <Link href="/" className="btn-ghost min-h-10 rounded-xl px-3.5 text-sm font-semibold">Projects</Link>
+              <Link href="/settings" className="btn-ghost min-h-10 rounded-xl px-3.5 text-sm font-semibold">Settings</Link>
+              <Link href="/projects/new" className="btn-primary min-h-10 rounded-xl px-4 text-sm font-semibold ml-1">
+                + New
+              </Link>
             </nav>
           </div>
         </header>
