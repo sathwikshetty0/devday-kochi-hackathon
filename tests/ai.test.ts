@@ -37,8 +37,23 @@ it("turns AI segment ranges into ordered, non-overlapping cuts within the max le
     { start_segment: 0, end_segment: 3, title: "Hook", score: 90, important: true, reason: "r" },
     { start_segment: 3, end_segment: 3, title: "Dup", score: 10, important: false, reason: "r" },
   ] }, 40);
+  // weak moments are dropped
+  expect(normalizeMoments(segs, { summary: "", moments: [
+    { start_segment: 0, end_segment: 0, title: "Hi", score: 20, important: true, reason: "r" },
+    { start_segment: 2, end_segment: 2, title: "Reveal", score: 90, important: true, reason: "r" },
+  ] }, 40).map((m) => m.title)).toEqual(["Reveal"]);
   expect(out.map((m) => [m.start, m.duration])).toEqual([[0, 30], [30, 30], [60, 30]]);
   expect(out[0].title).toBe("Hook (1/2)");
   expect(out[0].transcript).toBe("s0 s1");
-  expect(out[2].important).toBe(false);
+  expect(out.map((m) => m.important)).toEqual([true, false, false]);
+});
+
+import { enforceImportance } from "@/lib/ai/importance";
+
+it("never lets everything be important", () => {
+  const out = enforceImportance([90, 85, 80, 78, 76, 95].map((score) => ({ score, important: true })));
+  expect(out.filter((o) => o.important).map((o) => o.score).sort()).toEqual([90, 95]);
+});
+it("marks the best part when the model marks nothing", () => {
+  expect(enforceImportance([{ score: 65, important: false }, { score: 40, important: false }]).map((o) => o.important)).toEqual([true, false]);
 });

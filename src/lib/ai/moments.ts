@@ -1,5 +1,6 @@
 import { formatTime, splitRange } from "../split-math";
 import type { Project } from "../types";
+import { enforceImportance, KEEP_MIN_SCORE } from "./importance";
 import { structuredChat } from "./nvidia";
 import { MomentsSchema, type Moments } from "./schemas";
 
@@ -42,7 +43,10 @@ export function normalizeMoments(segments: Segment[], raw: Moments, maxLength: n
     }
     picked.push(r);
   }
-  return picked.flatMap((m) => {
+  // Drop weak moments (keep the best one if everything is weak), then cut long ones into pieces.
+  const strong = picked.filter((m) => m.score >= KEEP_MIN_SCORE);
+  const kept = strong.length ? strong : picked.sort((a, b) => b.score - a.score).slice(0, 1);
+  const pieces = kept.flatMap((m) => {
     const start = segments[m.s].start;
     const end = segments[m.e].end;
     const pieces = splitRange(start, end - start, maxLength);
@@ -63,6 +67,7 @@ export function normalizeMoments(segments: Segment[], raw: Moments, maxLength: n
       };
     });
   });
+  return enforceImportance(pieces);
 }
 
 export async function pickMoments(project: Project, segments: Segment[], maxLength: number) {
@@ -71,11 +76,17 @@ export async function pickMoments(project: Project, segments: Segment[], maxLeng
 You get a transcript timeline split into numbered segments with times.
 Rules:
 - Use ONLY what is in the transcript. Never invent anything.
-- Pick the moments worth posting: hooks, key information, reveals, punchlines, emotional peaks, and the conclusion. Skip filler, repetition, silence and off-topic chatter.
+- Be selective. Only pick moments a viewer would stop scrolling for:
+  * hooks (a strong opening line, a bold claim, a "wait for it" setup),
+  * questions that create curiosity, and the moment they are answered,
+  * key information, reveals, punchlines and emotional peaks.
+- Do NOT pick greetings, intros like "welcome to my channel", outros, "like and subscribe", thank-yous, recaps, filler, repetition, silence or off-topic chatter. Leaving parts of the video out is expected.
+- Usually this is well under half of the video.
 - Each moment is a contiguous range of segments: start_segment..end_segment (inclusive). Moments must not overlap and must be in time order.
 - Aim for moments between 15 and ${maxLength} seconds long. A longer moment will be cut into equal parts automatically, so keep complete thoughts together.
 - If the whole video is important and short, one moment covering everything is fine.
-- score 0-100 for how important/engaging the moment is; important=true for the strongest ones (at least one).
+- score 0-100 for how strong the moment is: 85+ only for real hooks/reveals, 50-70 for useful but ordinary content, below 50 for anything you would normally skip.
+- important=true only for the 1-3 strongest hooks or key moments, never for everything.
 - title: 2-5 words naming the moment. reason: one short English sentence that paraphrases the transcript.
 - summary: 2-3 sentences describing the whole video using only transcript facts.`;
   const user = `Title: ${project.title}\nLanguage: ${project.language}\nVideo length: ${formatTime(total)}\nMax part length: ${maxLength} seconds\n\nSegments:\n${segmentsText(segments)}`;
