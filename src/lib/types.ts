@@ -31,6 +31,7 @@ export interface Project {
   failure_simulated: boolean;
   send_important_only: boolean;
   status: ProjectStatus;
+  delivery_channel?: "telegram" | "instagram" | "youtube";
   rights_confirmed: boolean;
   ai_summary: string | null;
   /** "even" = equal parts, "ai" = AI picks the important moments from the full transcript */

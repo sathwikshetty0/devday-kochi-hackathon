@@ -29,8 +29,10 @@ export default function ApprovePage() {
 
   const pending = parts.filter((p) => ["queued", "awaiting_approval"].includes(p.status));
   const toSendCount = project.send_important_only ? pending.filter((p) => p.ai_important).length : pending.length;
+  const isTelegram = !project.delivery_channel || project.delivery_channel === "telegram";
   const telegramReady = integrations ? integrations.telegram_token && integrations.telegram_chat : true;
-  const canApprove = project.status === "awaiting_approval" && toSendCount > 0 && telegramReady;
+  const channelReady = isTelegram ? telegramReady : true;
+  const canApprove = project.status === "awaiting_approval" && toSendCount > 0 && channelReady;
   const leftToSend = parts.filter((p) => p.status === "approved").length;
   const finished = ["completed", "failed", "stopped"].includes(project.status);
   const delivered = parts.filter((p) => p.status === "delivered").length;
@@ -116,11 +118,63 @@ export default function ApprovePage() {
                   <p className="font-display text-4xl font-bold">{toSendCount}<span className="text-lg text-muted">/{pending.length}</span></p>
                 </div>
                 <div className="rounded-2xl bg-cream p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-muted">Destination</p>
-                  <p className="mt-1 font-display text-lg font-bold">Telegram channel</p>
-                  <p className="text-xs text-muted">{telegramReady ? "Bot configured" : "Not configured"}</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted">Active Channel</p>
+                  <p className="mt-1 font-display text-lg font-bold capitalize">
+                    {project.delivery_channel === "instagram" ? "📸 Instagram Reels" : project.delivery_channel === "youtube" ? "🔴 YouTube Shorts" : "✈️ Telegram"}
+                  </p>
+                  <p className="text-xs text-muted">
+                    {project.delivery_channel === "instagram" || project.delivery_channel === "youtube"
+                      ? "Playwright Desktop Automation"
+                      : telegramReady ? "Bot configured" : "Not configured"}
+                  </p>
                 </div>
               </div>
+
+              <div className="mt-4">
+                <label className="label">Destination Platform</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => patchProject({ delivery_channel: "telegram" })}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      (!project.delivery_channel || project.delivery_channel === "telegram")
+                        ? "border-coral bg-coral-soft font-bold text-coral-dark"
+                        : "border-cream-dark hover:border-gray-400"
+                    }`}
+                  >
+                    <div className="text-xl">✈️</div>
+                    <div className="text-sm">Telegram</div>
+                    <div className="text-xs font-normal text-muted">Bot API</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => patchProject({ delivery_channel: "instagram" })}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      project.delivery_channel === "instagram"
+                        ? "border-coral bg-coral-soft font-bold text-coral-dark"
+                        : "border-cream-dark hover:border-gray-400"
+                    }`}
+                  >
+                    <div className="text-xl">📸</div>
+                    <div className="text-sm">Instagram</div>
+                    <div className="text-xs font-normal text-muted">Desktop Reels</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => patchProject({ delivery_channel: "youtube" })}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      project.delivery_channel === "youtube"
+                        ? "border-coral bg-coral-soft font-bold text-coral-dark"
+                        : "border-cream-dark hover:border-gray-400"
+                    }`}
+                  >
+                    <div className="text-xl">🔴</div>
+                    <div className="text-sm">YouTube</div>
+                    <div className="text-xs font-normal text-muted">Desktop Shorts</div>
+                  </button>
+                </div>
+              </div>
+
               <div className="mt-4 divide-y divide-cream-dark">
                 <Toggle checked={project.send_important_only} onChange={(v) => patchProject({ send_important_only: v })} label="Send only important parts"
                   description='Other parts are cancelled with "Skipped: not marked important."' />
@@ -150,7 +204,21 @@ export default function ApprovePage() {
                 <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-cream px-4 py-3">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{p.title}</span>
-                    {p.delivery_proof && <span className="block text-xs text-emerald-700">Proof: Telegram message #{p.delivery_proof}</span>}
+                    {p.delivery_proof && (
+                      <span className="block text-xs text-emerald-700">
+                        {p.delivery_method === "instagram" ? (
+                          <a href={p.delivery_proof.startsWith("http") ? p.delivery_proof : `https://www.instagram.com/reel/${p.delivery_proof}/`} target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                            Proof: Instagram Reel ↗
+                          </a>
+                        ) : p.delivery_method === "youtube" ? (
+                          <a href={p.delivery_proof.startsWith("http") ? p.delivery_proof : `https://youtube.com/shorts/${p.delivery_proof}`} target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                            Proof: YouTube Short ↗
+                          </a>
+                        ) : (
+                          <span>Proof: Telegram message #{p.delivery_proof}</span>
+                        )}
+                      </span>
+                    )}
                     {p.error_message && p.status !== "delivered" && <span className="block text-xs text-muted">{p.error_message}</span>}
                   </span>
                   <StatusBadge status={p.status} />

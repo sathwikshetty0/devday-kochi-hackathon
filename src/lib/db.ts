@@ -102,6 +102,7 @@ export function db(): Db {
   if (!cols.has("timeline")) _db.exec("ALTER TABLE projects ADD COLUMN timeline TEXT");
   if (!cols.has("aspect_ratio")) _db.exec("ALTER TABLE projects ADD COLUMN aspect_ratio TEXT NOT NULL DEFAULT 'original'");
   if (!cols.has("ai_plan")) _db.exec("ALTER TABLE projects ADD COLUMN ai_plan TEXT");
+  if (!cols.has("delivery_channel")) _db.exec("ALTER TABLE projects ADD COLUMN delivery_channel TEXT NOT NULL DEFAULT 'telegram'");
   return _db;
 }
 

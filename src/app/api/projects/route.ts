@@ -32,6 +32,7 @@ export const POST = handle(async (req: Request) => {
     failure_simulated: false,
     send_important_only: false,
     status: "draft",
+    delivery_channel: "telegram",
     ai_summary: null,
     created_date: new Date().toISOString(),
   };

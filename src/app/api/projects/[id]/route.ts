@@ -18,6 +18,7 @@ const PatchSchema = z
     add_part_badge: z.boolean(),
     crop_9_16: z.boolean(),
     aspect_ratio: z.enum(ASPECT_RATIOS),
+    delivery_channel: z.enum(["telegram", "instagram", "youtube"]),
     simulate_failure: z.boolean(),
     send_important_only: z.boolean(),
   })

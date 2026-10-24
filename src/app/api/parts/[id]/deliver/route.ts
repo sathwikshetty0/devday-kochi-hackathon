@@ -3,7 +3,7 @@ import { getPart } from "@/lib/db";
 import { deliverPart } from "@/lib/deliver";
 
 export const runtime = "nodejs";
-export const maxDuration = 180;
+export const maxDuration = 600;
 
 export const POST = handle(async (_req: Request, { params }: Ctx<{ id: string }>) => {
   const { id } = await params;
