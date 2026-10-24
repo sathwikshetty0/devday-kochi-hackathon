@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 const BASE_URL = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
-export const LLM_MODEL = process.env.NVIDIA_LLM_MODEL || "meta/llama-3.3-70b-instruct";
+const FALLBACK_MODELS = ["openai/gpt-oss-20b", "nvidia/nemotron-3-ultra-550b-a55b"];
+export const LLM_MODELS = [...new Set([process.env.NVIDIA_LLM_MODEL, ...FALLBACK_MODELS].filter((m): m is string => !!m))];
 
 export function nvidiaKey() {
   const key = process.env.NVIDIA_API_KEY;
@@ -18,16 +19,35 @@ function extractJson(text: string): unknown {
   return JSON.parse(body.slice(start, end + 1));
 }
 
-async function chat(messages: { role: string; content: string }[]) {
+async function chatWith(model: string, messages: { role: string; content: string }[]) {
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${nvidiaKey()}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ model: LLM_MODEL, messages, temperature: 0.2, top_p: 0.7, max_tokens: 4096 }),
+    body: JSON.stringify({ model, messages, temperature: 0.2, top_p: 0.7, max_tokens: 4096 }),
     signal: AbortSignal.timeout(120_000),
   });
-  if (!res.ok) throw new Error(`NVIDIA LLM error ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  if (!res.ok) {
+    const err = new Error(`NVIDIA LLM error ${res.status} (${model}): ${(await res.text()).slice(0, 300)}`);
+    (err as Error & { status?: number }).status = res.status;
+    throw err;
+  }
+  const json = (await res.json()) as { choices?: { message?: { content?: string | null } }[] };
   return json.choices?.[0]?.message?.content ?? "";
+}
+
+/** Tries each model in order, moving on when a model is retired or unavailable for this key. */
+async function chat(messages: { role: string; content: string }[]) {
+  let lastError: unknown;
+  for (const model of LLM_MODELS) {
+    try {
+      return await chatWith(model, messages);
+    } catch (e) {
+      lastError = e;
+      const status = (e as { status?: number }).status;
+      if (status !== 404 && status !== 410) throw e;
+    }
+  }
+  throw lastError;
 }
 
 /** Calls the LLM, parses JSON and validates it against `schema`, retrying once with the validation error. */

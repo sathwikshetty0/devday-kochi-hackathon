@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import type { ActivityLog, Part, Project } from "./types";
@@ -61,15 +61,41 @@ CREATE INDEX IF NOT EXISTS logs_project ON activity_logs(project_id);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
-let _db: Database.Database | null = null;
+class Db {
+  constructor(readonly raw: DatabaseSync) {}
+  prepare(sql: string) {
+    return this.raw.prepare(sql);
+  }
+  exec(sql: string) {
+    this.raw.exec(sql);
+  }
+  close() {
+    this.raw.close();
+  }
+  /** Same call style as better-sqlite3: db().transaction(fn)() */
+  transaction<T>(fn: () => T): () => T {
+    return () => {
+      this.raw.exec("BEGIN IMMEDIATE");
+      try {
+        const out = fn();
+        this.raw.exec("COMMIT");
+        return out;
+      } catch (e) {
+        this.raw.exec("ROLLBACK");
+        throw e;
+      }
+    };
+  }
+}
 
-export function db(): Database.Database {
+let _db: Db | null = null;
+
+export function db(): Db {
   if (_db) return _db;
   const file = process.env.DB_FILE || path.join(DATA_DIR, "reelix.db");
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
-  _db = new Database(file);
-  _db.pragma("journal_mode = WAL");
-  _db.pragma("foreign_keys = ON");
+  _db = new Db(new DatabaseSync(file));
+  _db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
   _db.exec(SCHEMA);
   return _db;
 }
@@ -130,8 +156,10 @@ export function getPart(id: string): Part | null {
 export function getLogs(projectId: string, limit = 200): ActivityLog[] {
   return db()
     .prepare("SELECT * FROM activity_logs WHERE project_id = ? ORDER BY timestamp DESC, rowid DESC LIMIT ?")
-    .all(projectId, limit) as ActivityLog[];
+    .all(projectId, limit) as unknown as ActivityLog[];
 }
+
+type SqlValue = string | number | bigint | null | Uint8Array;
 
 function toSql(v: unknown) {
   if (typeof v === "boolean") return v ? 1 : 0;
@@ -143,28 +171,28 @@ export function updateProject(id: string, fields: Partial<Project>) {
   const keys = Object.keys(fields);
   if (!keys.length) return;
   const sql = `UPDATE projects SET ${keys.map((k) => `"${k}" = ?`).join(", ")} WHERE id = ?`;
-  db().prepare(sql).run(...keys.map((k) => toSql((fields as Row)[k])), id);
+  db().prepare(sql).run(...keys.map((k) => toSql((fields as Row)[k]) as SqlValue), id);
 }
 
 export function updatePart(id: string, fields: Partial<Part>) {
   const keys = Object.keys(fields);
   if (!keys.length) return;
   const sql = `UPDATE parts SET ${keys.map((k) => `"${k}" = ?`).join(", ")} WHERE id = ?`;
-  db().prepare(sql).run(...keys.map((k) => toSql((fields as Row)[k])), id);
+  db().prepare(sql).run(...keys.map((k) => toSql((fields as Row)[k]) as SqlValue), id);
 }
 
 export function insertProject(p: Project) {
   const keys = Object.keys(p).filter((k) => k !== "part_count");
   db()
     .prepare(`INSERT INTO projects (${keys.map((k) => `"${k}"`).join(",")}) VALUES (${keys.map(() => "?").join(",")})`)
-    .run(...keys.map((k) => toSql((p as unknown as Row)[k])));
+    .run(...keys.map((k) => toSql((p as unknown as Row)[k]) as SqlValue));
 }
 
 export function insertPart(p: Part) {
   const keys = Object.keys(p);
   db()
     .prepare(`INSERT INTO parts (${keys.map((k) => `"${k}"`).join(",")}) VALUES (${keys.map(() => "?").join(",")})`)
-    .run(...keys.map((k) => toSql((p as unknown as Row)[k])));
+    .run(...keys.map((k) => toSql((p as unknown as Row)[k]) as SqlValue));
 }
 
 export function getSetting(key: string, fallback: string): string {
