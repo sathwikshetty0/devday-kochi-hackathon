@@ -78,21 +78,39 @@ export async function publishToInstagram(
     }
 
     // 2. Open Create Modal
-    // Instagram sidebar has "Create" with various labels and text spans across web updates
     console.log("[Instagram] Opening Create modal...");
     const createBtn = page.locator(
       "svg[aria-label='New post'], svg[aria-label='Create'], a[href='#']:has-text('Create'), div[role='button']:has-text('Create'), span:has-text('Create')"
     ).first();
     await createBtn.waitFor({ state: "visible", timeout: 20_000 });
     await createBtn.click();
+    await page.waitForTimeout(2000);
+
+    // Instagram desktop sometimes shows a sub-menu: "Post" vs "Live video"
+    const postMenuOption = page.locator("span:has-text('Post'), svg[aria-label='Post']").first();
+    if (await postMenuOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await postMenuOption.click();
+      await page.waitForTimeout(1000);
+    }
 
     // 3. Upload File
-    // Find file input inside Instagram modal
-    const fileInput = page.locator("input[type='file']").first();
-    await fileInput.setInputFiles(payload.videoFilePath);
+    // Instagram modal renders a "Select from computer" button that triggers a file chooser
+    console.log("[Instagram] Uploading video file...");
+    const selectBtn = page.locator("button:has-text('Select from computer')").first();
+    if (await selectBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const [fileChooser] = await Promise.all([
+        page.waitForEvent("filechooser", { timeout: 15_000 }),
+        selectBtn.click(),
+      ]);
+      await fileChooser.setFiles(payload.videoFilePath);
+    } else {
+      const fileInput = page.locator("input[type='file']").first();
+      await fileInput.waitFor({ state: "attached", timeout: 20_000 });
+      await fileInput.setInputFiles(payload.videoFilePath);
+    }
 
     // Wait for video preview/crop modal to settle
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(4000);
 
     // Instagram modal Next buttons
     // Typically: "Next" button in header
