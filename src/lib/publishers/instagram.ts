@@ -60,6 +60,23 @@ export async function publishToInstagram(
       }
     }
 
+    // Check if Instagram redirected to an auth challenge or reCAPTCHA
+    if (page.url().includes("auth_platform") || page.url().includes("challenge") || page.url().includes("recaptcha")) {
+      console.log("[Instagram] Security challenge/reCAPTCHA detected. Waiting up to 5 minutes for user to solve it in the browser...");
+      try {
+        await page.waitForURL((url) => !url.pathname.includes("auth_platform") && !url.pathname.includes("challenge") && !url.pathname.includes("recaptcha"), {
+          timeout: 5 * 60 * 1000,
+        });
+        await page.waitForTimeout(3000);
+      } catch {
+        return {
+          ok: false,
+          deliveryMethod: "instagram",
+          error: "Instagram reCAPTCHA/challenge was not completed in time. Please solve it in the browser and retry.",
+        };
+      }
+    }
+
     // 2. Open Create Modal
     // Instagram sidebar has "Create" with various labels and text spans across web updates
     console.log("[Instagram] Opening Create modal...");
