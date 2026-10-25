@@ -28,17 +28,29 @@ export async function publishToInstagram(
     await page.goto("https://www.instagram.com/", { waitUntil: "domcontentloaded", timeout: 30_000 });
     
     // Check if user is logged in
-    let isLoginPage = await page.locator("input[name='username']").isVisible().catch(() => false);
-    if (isLoginPage) {
-      console.log("[Instagram] Not logged in. Waiting up to 10 minutes for user to complete login in the opened browser...");
+    // Instagram shows login forms or prompts like username/password input, or a "Log in" heading
+    let isLoggedOut = await page.locator("input[name='username'], form#loginForm, a[href*='/accounts/login']").first().isVisible().catch(() => false);
+    
+    if (isLoggedOut) {
+      console.log("[Instagram] Waiting for user to complete Instagram login/signup in the browser...");
       try {
-        // Wait up to 10 minutes (600,000 ms) for navigation to feed or appearance of Create / Home icons
-        await page.waitForSelector("svg[aria-label='New post'], svg[aria-label='Create'], svg[aria-label='Home']", {
-          timeout: 10 * 60 * 1000,
-        });
-        console.log("[Instagram] Login detected! Proceeding with upload...");
-        isLoginPage = false;
-        await page.waitForTimeout(2000);
+        // Wait until navigation leads to logged in indicators:
+        // 1. Create / New post SVG
+        // 2. Profile icon / Avatar
+        // 3. Navigation to instagram.com/ (without /accounts/login)
+        await Promise.race([
+          page.waitForSelector("svg[aria-label='New post'], svg[aria-label='Create'], svg[aria-label='Home'], svg[aria-label='Explore']", { timeout: 10 * 60 * 1000 }),
+          page.waitForURL((url) => !url.pathname.includes("/accounts/login") && !url.pathname.includes("/accounts/emailsignup"), { timeout: 10 * 60 * 1000 }),
+        ]);
+
+        // Dismiss common Instagram post-login dialogs (e.g., "Save Your Login Info?", "Turn on Notifications")
+        await page.waitForTimeout(3000);
+        const notNowBtn = page.locator("button:has-text('Not now'), button:has-text('Not Now')").first();
+        if (await notNowBtn.isVisible().catch(() => false)) {
+          await notNowBtn.click().catch(() => {});
+          await page.waitForTimeout(1000);
+        }
+        console.log("[Instagram] Logged-in state detected!");
       } catch {
         return {
           ok: false,
