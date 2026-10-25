@@ -61,9 +61,13 @@ export async function publishToInstagram(
     }
 
     // 2. Open Create Modal
-    // Instagram sidebar 'New post' icon / text
-    const createBtn = page.locator("svg[aria-label='New post'], svg[aria-label='Create']").first();
-    await createBtn.click({ timeout: 15_000 });
+    // Instagram sidebar has "Create" with various labels and text spans across web updates
+    console.log("[Instagram] Opening Create modal...");
+    const createBtn = page.locator(
+      "svg[aria-label='New post'], svg[aria-label='Create'], a[href='#']:has-text('Create'), div[role='button']:has-text('Create'), span:has-text('Create')"
+    ).first();
+    await createBtn.waitFor({ state: "visible", timeout: 20_000 });
+    await createBtn.click();
 
     // 3. Upload File
     // Find file input inside Instagram modal
