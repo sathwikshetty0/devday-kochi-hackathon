@@ -54,11 +54,23 @@ export async function getBrowserContext(options: BrowserOptions = {}): Promise<{
     channel: "chrome",
     headless: isHeadless,
     viewport: null, // use full desktop screen
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    locale: "en-US",
+    timezoneId: "Asia/Kolkata",
+    ignoreDefaultArgs: ["--enable-automation"],
     args: [
       "--start-maximized",
       "--disable-blink-features=AutomationControlled",
+      "--disable-infobars",
       "--no-sandbox",
     ],
+  });
+
+  // Mask navigator.webdriver so Instagram security scripts see a normal human browser
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    // @ts-ignore
+    window.chrome = { runtime: {} };
   });
 
   return {
